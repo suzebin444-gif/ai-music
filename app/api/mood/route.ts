@@ -11,6 +11,8 @@ import { getOrCreateSessionId } from "@/lib/session";
 import { enrichTracksWithStreaming } from "@/lib/track-resolver";
 import { recordMoodAnalysis } from "@/lib/stats-store";
 
+export const maxDuration = 60;
+
 async function persistMoodResult(
   sessionId: string,
   moodInput: string,
@@ -21,13 +23,25 @@ async function persistMoodResult(
     source: "deepseek" | "fallback";
   }
 ) {
-  await saveMoodHistoryEntry(sessionId, {
-    moodInput,
-    analysis: result.analysis,
-    copy: result.copy,
-    recommendations: result.recommendations,
-    source: result.source,
-  });
+  try {
+    await saveMoodHistoryEntry(sessionId, {
+      moodInput,
+      analysis: result.analysis,
+      copy: result.copy,
+      recommendations: result.recommendations,
+      source: result.source,
+    });
+  } catch (error) {
+    console.error("[mood] persist history failed:", error);
+  }
+}
+
+async function safeRecordMoodAnalysis(): Promise<void> {
+  try {
+    await recordMoodAnalysis();
+  } catch (error) {
+    console.error("[mood] record stats failed:", error);
+  }
 }
 
 export async function POST(request: Request) {
@@ -56,7 +70,7 @@ export async function POST(request: Request) {
       const recommendations = await enrichTracksWithStreaming(
         result.recommendations
       );
-      await recordMoodAnalysis();
+      await safeRecordMoodAnalysis();
       await persistMoodResult(sessionId, mood, {
         analysis: result.analysis,
         copy: result.copy,
@@ -80,7 +94,7 @@ export async function POST(request: Request) {
       const raw = getRecommendations(mood);
       const recommendations = await enrichTracksWithStreaming(raw);
       const copy = generateMoodCopy(mood, analysis.label, recommendations);
-      await recordMoodAnalysis();
+      await safeRecordMoodAnalysis();
       await persistMoodResult(sessionId, mood, {
         analysis,
         copy,
@@ -99,7 +113,13 @@ export async function POST(request: Request) {
           : "itunes+search-links",
       });
     }
-  } catch {
-    return NextResponse.json({ error: "请求处理失败" }, { status: 500 });
+  } catch (error) {
+    console.error("[mood] request failed:", error);
+    const message =
+      error instanceof Error ? error.message : "请求处理失败";
+    return NextResponse.json(
+      { error: message.includes("DEEPSEEK") ? "AI 服务暂不可用，请稍后重试" : "请求处理失败" },
+      { status: 500 }
+    );
   }
 }

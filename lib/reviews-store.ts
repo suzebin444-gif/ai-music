@@ -1,4 +1,4 @@
-import { readJsonFile, writeJsonFile } from "@/lib/json-store";
+import { readJsonFile, tryWriteJsonFile, writeJsonFile } from "@/lib/json-store";
 import { testimonials } from "@/lib/music-data";
 import type { Review, ReviewInput } from "@/lib/review-types";
 
@@ -31,9 +31,9 @@ export async function listReviews(): Promise<Review[]> {
   let existing = await readJsonFile<Review[]>(FILE, []);
 
   if (existing.length === 0) {
-    existing = seedReviews();
-    await writeJsonFile(FILE, existing);
-    return existing;
+    const seeded = seedReviews();
+    await tryWriteJsonFile(FILE, seeded);
+    return seeded;
   }
 
   const filtered = existing.filter((r) => !isExcludedReview(r));
